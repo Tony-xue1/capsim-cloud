@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>用户管理 - Capsim AI 顾问</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<!-- 顶部导航 -->
+<div class="navbar">
+  <div class="navbar-brand">
+    <div class="logo">🎯</div>
+    <span>Capsim AI 顾问</span>
+  </div>
+  <div class="navbar-actions">
+    <button class="btn btn-ghost btn-sm" onclick="location.href='/index.html'">← 返回分析</button>
+    <button class="btn btn-ghost btn-sm" onclick="logout()">退出登录</button>
+  </div>
+</div>
+
+<!-- 主内容 -->
+<div class="main-content" style="max-width:800px">
+  <div class="admin-header">
+    <h2>👥 用户管理</h2>
+    <button class="btn btn-primary" onclick="showAddUser()">+ 添加用户</button>
+  </div>
+
+  <!-- 加载状态 -->
+  <div id="loading" style="text-align:center;padding:40px;color:var(--text-muted)">
+    加载中...
+  </div>
+
+  <!-- 用户列表 -->
+  <div id="userList"></div>
+
+  <!-- 错误提示 -->
+  <div id="errorBox" class="error-box hidden" style="margin-top:16px"></div>
+</div>
+
+<!-- 添加用户模态框 -->
+<div id="addUserModal" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-title">添加新用户</div>
+    <div class="form-group">
+      <label class="form-label">用户名</label>
+      <input type="text" id="newUsername" class="form-input" placeholder="输入用户名（唯一）">
+    </div>
+    <div class="form-group">
+      <label class="form-label">密码</label>
+      <input type="password" id="newPassword" class="form-input" placeholder="输入密码（至少6位）">
+    </div>
+    <div class="form-group">
+      <label class="form-label">角色</label>
+      <select id="newRole" class="form-input">
+        <option value="member">成员 (member)</option>
+        <option value="admin">管理员 (admin)</option>
+      </select>
+    </div>
+    <div id="addUserError" class="error-box hidden"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('addUserModal')">取消</button>
+      <button class="btn btn-primary" onclick="submitAddUser()">创建用户</button>
+    </div>
+  </div>
+</div>
+
+<!-- 删除确认模态框 -->
+<div id="deleteModal" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-title">⚠️ 确认删除</div>
+    <p style="color:var(--text-muted);font-size:14px;margin:8px 0 16px">
+      确定要删除用户 <strong id="deleteUsername" style="color:#fff"></strong> 吗？此操作不可撤销。
+    </p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('deleteModal')">取消</button>
+      <button class="btn btn-danger" onclick="submitDeleteUser()">确认删除</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '/api';
+let token = localStorage.getItem('capsim_token');
+let currentUser = null;
+let pendingDeleteId = null;
+
+document.addEventListener('DOMContentLoaded', init);
+
+async function init() {
+  if (!token) { location.href = '/index.html'; return; }
+  try {
+    const res = await fetch(API + '/auth/me', { headers: authHeader() });
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+    currentUser = data.user;
+    if (currentUser.role !== 'admin') { alert('需要管理员权限'); location.href = '/index.html'; return; }
+    await loadUsers();
+  } catch {
+    token = null; localStorage.removeItem('capsim_token');
+    location.href = '/index.html';
+  }
+}
+
+async function loadUsers() {
+  document.getElementById('loading').style.display = 'none';
+  try {
+    const res = await fetch(API + '/users', { headers: authHeader() });
+    if (!res.ok) throw new Error((await res.json()).error);
+    const data = await res.json();
+    renderUsers(data.users);
+  } catch (e) {
+    document.getElementById('errorBox').textContent = '加载失败：' + e;
+    document.getElementById('errorBox').classList.remove('hidden');
+  }
+}
+
+function renderUsers(users) {
+  const container = document.getElementById('userList');
+  container.innerHTML = `
+    <table class="users-table">
+      <thead>
+        <tr>
+          <th>用户名</th>
+          <th>角色</th>
+          <th>创建时间</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${users.map(u => `
+          <tr>
+            <td><strong>${u.username}</strong> ${u.id === currentUser.id ? '<span style="color:var(--accent);font-size:12px">(当前)</span>' : ''}</td>
+            <td><span class="badge-${u.role}">${u.role === 'admin' ? '管理员' : '成员'}</span></td>
+            <td style="color:var(--text-muted);font-size:13px">${new Date(u.created_at).toLocaleString('zh-CN')}</td>
+            <td>
+              ${u.id !== currentUser.id
+                ? `<button class="btn btn-danger btn-sm" onclick="confirmDelete(${u.id}, '${u.username}')">删除</button>`
+                : '<span style="color:var(--text-muted);font-size:12px">—</span>'
+              }
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function showAddUser() {
+  document.getElementById('newUsername').value = '';
+  document.getElementById('newPassword').value = '';
+  document.getElementById('newRole').value = 'member';
+  document.getElementById('addUserError').classList.add('hidden');
+  document.getElementById('addUserModal').classList.remove('hidden');
+}
+
+async function submitAddUser() {
+  const errEl = document.getElementById('addUserError');
+  errEl.classList.add('hidden');
+  const username = document.getElementById('newUsername').value.trim();
+  const password = document.getElementById('newPassword').value;
+  const role = document.getElementById('newRole').value;
+  if (!username || !password) { errEl.textContent = '请填写用户名和密码'; errEl.classList.remove('hidden'); return; }
+  if (password.length < 6) { errEl.textContent = '密码长度至少6位'; errEl.classList.remove('hidden'); return; }
+  try {
+    const res = await fetch(API + '/users', {
+      method: 'POST',
+      headers: { ...authHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password, role }),
+    });
+    const data = await res.json();
+    if (!res.ok) { errEl.textContent = data.error || '创建失败'; errEl.classList.remove('hidden'); return; }
+    closeModal('addUserModal');
+    await loadUsers();
+  } catch {
+    errEl.textContent = '网络错误';
+    errEl.classList.remove('hidden');
+  }
+}
+
+function confirmDelete(id, username) {
+  pendingDeleteId = id;
+  document.getElementById('deleteUsername').textContent = username;
+  document.getElementById('deleteModal').classList.remove('hidden');
+}
+
+async function submitDeleteUser() {
+  if (!pendingDeleteId) return;
+  try {
+    const res = await fetch(API + '/users/' + pendingDeleteId, {
+      method: 'DELETE',
+      headers: authHeader(),
+    });
+    const data = await res.json();
+    if (!res.ok) { alert(data.error || '删除失败'); return; }
+    closeModal('deleteModal');
+    await loadUsers();
+  } catch {
+    alert('网络错误');
+  }
+}
+
+function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+
+function authHeader() { return { 'Authorization': 'Bearer ' + token }; }
+
+function logout() {
+  token = null; localStorage.removeItem('capsim_token');
+  location.href = '/index.html';
+}
+
+document.addEventListener('click', e => {
+  if (e.target.classList.contains('modal-overlay')) e.target.classList.add('hidden');
+});
+</script>
+</body>
+</html>

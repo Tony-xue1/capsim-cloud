@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Capsim AI 顾问 - 云端版</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<!-- ================================================================
+     顶部导航栏
+     ================================================================ -->
+<div id="navbar" class="navbar hidden">
+  <div class="navbar-brand">
+    <div class="logo">🎯</div>
+    <span>Capsim AI 顾问</span>
+  </div>
+  <div class="navbar-actions">
+    <span class="navbar-user" id="navUser"></span>
+    <button class="btn btn-ghost btn-sm" onclick="showChangePassword()">修改密码</button>
+    <button class="btn btn-ghost btn-sm" id="adminBtn" onclick="location.href='/admin.html'" style="display:none">👥 用户管理</button>
+    <button class="btn btn-ghost btn-sm" onclick="logout()">退出登录</button>
+  </div>
+</div>
+
+<!-- ================================================================
+     登录页面
+     ================================================================ -->
+<div id="loginPage" class="login-page">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="logo">🎯</div>
+      <h1>Capsim AI 顾问</h1>
+      <p>上传报告，AI 给出精确决策参数</p>
+    </div>
+    <div id="loginError" class="login-error hidden"></div>
+    <form onsubmit="handleLogin(event)">
+      <div class="form-group">
+        <label class="form-label">用户名</label>
+        <input type="text" id="loginUsername" class="form-input" placeholder="输入用户名" autocomplete="username" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label">密码</label>
+        <input type="password" id="loginPassword" class="form-input" placeholder="输入密码" autocomplete="current-password" required>
+      </div>
+      <button type="submit" class="btn btn-primary btn-lg" style="width:100%;margin-top:8px" id="loginBtn">
+        登录
+      </button>
+    </form>
+  </div>
+</div>
+
+<!-- ================================================================
+     主分析界面
+     ================================================================ -->
+<div id="mainApp" class="hidden">
+  <div class="main-content">
+
+    <!-- 阶段进度条 -->
+    <div class="phase-progress">
+      <div class="phase-step active" id="step1">
+        <div class="dot">1</div>
+        <span>阶段一<br><small>识别产品</small></span>
+      </div>
+      <div class="phase-step" id="step2">
+        <div class="dot">2</div>
+        <span>阶段二<br><small>诊断问题</small></span>
+      </div>
+      <div class="phase-step" id="step3">
+        <div class="dot">3</div>
+        <span>阶段三<br><small>决策参数</small></span>
+      </div>
+    </div>
+
+    <!-- 配置区 -->
+    <div class="config-section">
+      <div class="config-title">📋 分析配置</div>
+      <div class="config-grid">
+        <div>
+          <label class="form-label">队伍名称</label>
+          <input type="text" id="teamName" class="form-input" placeholder="如：Andrews / Baldwin">
+        </div>
+        <div>
+          <label class="form-label">当前轮次</label>
+          <select id="roundNum" class="form-input">
+            <option value="0">第 0 轮（初始）</option>
+            <option value="1">第 1 轮</option>
+            <option value="2">第 2 轮</option>
+            <option value="3" selected>第 3 轮</option>
+            <option value="4">第 4 轮</option>
+            <option value="5">第 5 轮</option>
+            <option value="6">第 6 轮</option>
+            <option value="7">第 7 轮</option>
+            <option value="8">第 8 轮</option>
+          </select>
+        </div>
+        <div>
+          <label class="form-label">战略方向</label>
+          <select id="strategy" class="form-input">
+            <option value="">不指定</option>
+            <option value="全市场覆盖">全市场覆盖</option>
+            <option value="利基市场-High End">利基市场-High End</option>
+            <option value="成本领导-Low End为主">成本领导-Low End为主</option>
+            <option value="差异化-Performance/Size">差异化-Performance/Size</option>
+            <option value="品牌扩张策略">品牌扩张策略</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- PDF 上传区 -->
+    <div class="config-section">
+      <div class="config-title">📄 上传 Courier 报告</div>
+
+      <div id="uploadZone" class="upload-zone" onclick="document.getElementById('fileInput').click()">
+        <div class="icon">📎</div>
+        <p>点击或拖拽上传 PDF</p>
+        <p class="hint">支持 Capsim Courier 报告 PDF（需包含可选择文字）</p>
+        <input type="file" id="fileInput" accept=".pdf" onchange="handleFileSelect(event)">
+      </div>
+
+      <div id="uploadedFile" class="uploaded-file hidden">
+        <span>📄</span>
+        <span class="name" id="fileName"></span>
+        <span id="fileSize" style="color:var(--text-muted);font-size:12px"></span>
+        <button class="remove" onclick="removeFile()">✕</button>
+      </div>
+
+      <div id="uploadError" class="error-box hidden"></div>
+    </div>
+
+    <!-- 分析按钮 -->
+    <button class="analyze-btn" id="analyzeBtn" onclick="runAnalysis()" disabled>
+      <span id="analyzeBtnText">⚡ 开始三阶段 AI 分析</span>
+    </button>
+
+    <!-- 结果区 -->
+    <div id="resultSection" class="result-section hidden">
+      <div class="result-header">
+        <h3>📊 分析结果</h3>
+        <button class="btn btn-ghost btn-sm" onclick="copyResult()">📋 复制结果</button>
+      </div>
+      <div class="result-body">
+        <div id="analysisContent" class="markdown-output"></div>
+      </div>
+    </div>
+
+    <!-- 错误提示 -->
+    <div id="analysisError" class="error-box hidden"></div>
+  </div>
+</div>
+
+<!-- ================================================================
+     修改密码模态框
+     ================================================================ -->
+<div id="changePasswordModal" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-title">修改密码</div>
+    <div class="form-group">
+      <label class="form-label">旧密码</label>
+      <input type="password" id="oldPwd" class="form-input" placeholder="输入旧密码">
+    </div>
+    <div class="form-group">
+      <label class="form-label">新密码（至少6位）</label>
+      <input type="password" id="newPwd" class="form-input" placeholder="输入新密码">
+    </div>
+    <div id="pwdError" class="error-box hidden"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('changePasswordModal')">取消</button>
+      <button class="btn btn-primary" onclick="submitChangePassword()">确认修改</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================================================================
+     JavaScript
+     ================================================================ -->
+<script>
+const API = '/api';
+let token = localStorage.getItem('capsim_token');
+let currentUser = null;
+let uploadedPdfText = null;
+let uploadedFilename = null;
+
+// ---- 启动 ----
+document.addEventListener('DOMContentLoaded', () => {
+  if (token) {
+    checkAuth();
+  } else {
+    showLogin();
+  }
+});
+
+// ---- 认证 ----
+async function checkAuth() {
+  try {
+    const res = await fetch(API + '/auth/me', { headers: authHeader() });
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+    currentUser = data.user;
+    showApp();
+  } catch {
+    token = null;
+    localStorage.removeItem('capsim_token');
+    showLogin();
+  }
+}
+
+async function handleLogin(e) {
+  e.preventDefault();
+  const btn = document.getElementById('loginBtn');
+  const errEl = document.getElementById('loginError');
+  errEl.classList.add('hidden');
+  btn.disabled = true;
+  btn.textContent = '登录中...';
+
+  try {
+    const res = await fetch(API + '/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: document.getElementById('loginUsername').value,
+        password: document.getElementById('loginPassword').value,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) { errEl.textContent = data.error || '登录失败'; errEl.classList.remove('hidden'); return; }
+    token = data.token;
+    currentUser = data.user;
+    localStorage.setItem('capsim_token', token);
+    showApp();
+  } catch (e) {
+    errEl.textContent = '网络错误，请重试';
+    errEl.classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '登录';
+  }
+}
+
+function logout() {
+  token = null;
+  currentUser = null;
+  localStorage.removeItem('capsim_token');
+  uploadedPdfText = null;
+  uploadedFilename = null;
+  showLogin();
+}
+
+function authHeader() { return { 'Authorization': 'Bearer ' + token }; }
+
+// ---- 界面切换 ----
+function showLogin() {
+  document.getElementById('loginPage').classList.remove('hidden');
+  document.getElementById('navbar').classList.add('hidden');
+  document.getElementById('mainApp').classList.add('hidden');
+}
+
+function showApp() {
+  document.getElementById('loginPage').classList.add('hidden');
+  document.getElementById('navbar').classList.remove('hidden');
+  document.getElementById('mainApp').classList.remove('hidden');
+  document.getElementById('navUser').innerHTML =
+    `<strong>${currentUser.username}</strong> <span class="badge-${currentUser.role}">${currentUser.role === 'admin' ? '管理员' : '成员'}</span>`;
+  document.getElementById('adminBtn').style.display = currentUser.role === 'admin' ? '' : 'none';
+}
+
+// ---- 文件上传 ----
+function handleFileSelect(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  if (!file.name.toLowerCase().endsWith('.pdf')) {
+    showUploadError('请上传 PDF 文件');
+    return;
+  }
+  uploadFile(file);
+}
+
+async function uploadFile(file) {
+  const formData = new FormData();
+  formData.append('report', file);
+  document.getElementById('uploadError').classList.add('hidden');
+  document.getElementById('analyzeBtn').disabled = true;
+
+  try {
+    const res = await fetch(API + '/upload', {
+      method: 'POST',
+      headers: authHeader(),
+      body: formData,
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showUploadError(data.error || '上传失败');
+      return;
+    }
+    uploadedPdfText = data.text;
+    uploadedFilename = data.filename;
+    document.getElementById('fileName').textContent = data.filename;
+    document.getElementById('fileSize').textContent = formatSize(file.size);
+    document.getElementById('uploadZone').classList.add('hidden');
+    document.getElementById('uploadedFile').classList.remove('hidden');
+    document.getElementById('analyzeBtn').disabled = false;
+  } catch (e) {
+    showUploadError('网络错误，请重试');
+  }
+}
+
+function showUploadError(msg) {
+  const el = document.getElementById('uploadError');
+  el.textContent = msg;
+  el.classList.remove('hidden');
+}
+
+function removeFile() {
+  uploadedPdfText = null;
+  uploadedFilename = null;
+  document.getElementById('fileInput').value = '';
+  document.getElementById('uploadZone').classList.remove('hidden');
+  document.getElementById('uploadedFile').classList.add('hidden');
+  document.getElementById('analyzeBtn').disabled = true;
+  document.getElementById('resultSection').classList.add('hidden');
+  resetPhaseProgress();
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+}
+
+// ---- 分析 ----
+async function runAnalysis() {
+  if (!uploadedPdfText) { showAnalysisError('请先上传 PDF'); return; }
+
+  const btn = document.getElementById('analyzeBtn');
+  const btnText = document.getElementById('analyzeBtnText');
+  btn.disabled = true;
+  btnText.innerHTML = '<div class="spinner"></div> AI 分析中，请稍候...';
+  document.getElementById('analysisError').classList.add('hidden');
+  document.getElementById('resultSection').classList.add('hidden');
+  resetPhaseProgress();
+
+  try {
+    const res = await fetch(API + '/analyze', {
+      method: 'POST',
+      headers: { ...authHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        pdfText: uploadedPdfText,
+        teamName: document.getElementById('teamName').value.trim(),
+        roundNum: document.getElementById('roundNum').value,
+        strategy: document.getElementById('strategy').value,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) { showAnalysisError(data.error || '分析失败'); return; }
+
+    // 渲染结果
+    document.getElementById('analysisContent').innerHTML = markdownToHtml(data.result);
+    document.getElementById('resultSection').classList.remove('hidden');
+
+    // 更新进度条（全部完成）
+    document.getElementById('step1').classList.remove('active');
+    document.getElementById('step1').classList.add('done');
+    document.getElementById('step2').classList.add('done');
+    document.getElementById('step3').classList.add('done');
+
+    // 滚动到结果
+    document.getElementById('resultSection').scrollIntoView({ behavior: 'smooth' });
+  } catch (e) {
+    showAnalysisError('网络错误：' + e.message);
+  } finally {
+    btn.disabled = false;
+    btnText.textContent = '⚡ 重新分析';
+    if (uploadedPdfText) document.getElementById('analyzeBtn').disabled = false;
+  }
+}
+
+function showAnalysisError(msg) {
+  const el = document.getElementById('analysisError');
+  el.textContent = msg;
+  el.classList.remove('hidden');
+}
+
+function resetPhaseProgress() {
+  ['step1','step2','step3'].forEach(id => {
+    document.getElementById(id).className = 'phase-step';
+  });
+  document.getElementById('step1').classList.add('active');
+}
+
+function copyResult() {
+  const text = document.getElementById('analysisContent').innerText;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = event.target;
+    const orig = btn.textContent;
+    btn.textContent = '已复制 ✓';
+    setTimeout(() => btn.textContent = orig, 2000);
+  });
+}
+
+// ---- Markdown 转 HTML（与 server.mjs 一致）----
+function escMd(str) {
+  if (!str) return '';
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/\*\*([^*\n]+)\*\*/g,'<strong>$1</strong>')
+    .replace(/\*([^*\n]+)\*/g,'<em>$1</em>');
+}
+
+function parseTableRow(line) {
+  return line.trim().replace(/^\|/,'').replace(/\|$/,'').split('|').map(c => c.trim());
+}
+
+function isSepRow(line) { return /^\s*\|[\s\-:|]+\|/.test(line); }
+
+function markdownToHtml(text) {
+  const lines = text.split('\n');
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.trim().startsWith('|') && i+1 < lines.length && isSepRow(lines[i+1])) {
+      const headerCells = parseTableRow(line);
+      const colCount = headerCells.length;
+      i += 2;
+      const dataRows = [];
+      while (i < lines.length && lines[i].trim().startsWith('|')) {
+        dataRows.push(lines[i++]);
+      }
+      let tbl = '<div class="table-wrap"><table><thead><tr>';
+      headerCells.forEach(c => { tbl += `<th>${escMd(c)}</th>`; });
+      tbl += '</tr></thead><tbody>';
+      dataRows.forEach(rl => {
+        const cells = parseTableRow(rl);
+        tbl += '<tr>';
+        for (let c = 0; c < colCount; c++) {
+          tbl += `<td>${escMd(cells[c] !== undefined ? cells[c] : '')}</td>`;
+        }
+        tbl += '</tr>';
+      });
+      tbl += '</tbody></table></div>';
+      out.push(tbl);
+      continue;
+    }
+    out.push(line);
+    i++;
+  }
+  let html = out.join('\n');
+  html = html.replace(/```[\w]*\n([\s\S]*?)```/g, (m, c) => `<pre><code>${c.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</code></pre>`);
+  html = html.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+  html = html.replace(/^---+$/gm, '<hr>');
+  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+  html = html.replace(/^## (.+)$/gm, (m, t) => {
+    if (/R&D|R&amp;D|🔬/.test(t)) return `<h2 class="section-rd">${t}</h2>`;
+    if (/Marketing|📣/.test(t)) return `<h2 class="section-mkt">${t}</h2>`;
+    if (/Production|🏭/.test(t)) return `<h2 class="section-prod">${t}</h2>`;
+    if (/Finance|💰/.test(t)) return `<h2 class="section-fin">${t}</h2>`;
+    if (/TQM|🏆/.test(t)) return `<h2 class="section-tqm">${t}</h2>`;
+    if (/第一阶段/.test(t)) return `<h2 class="phase1">${t}</h2>`;
+    if (/第二阶段/.test(t)) return `<h2 class="phase2">${t}</h2>`;
+    if (/第三阶段/.test(t)) return `<h2 class="phase3">${t}</h2>`;
+    return `<h2>${t}</h2>`;
+  });
+  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/\*\*\*([^*\n]+)\*\*\*/g, '<strong><em>$1</em></strong>');
+  html = html.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+  html = html.replace(/^[ \t]*[-*] (.+)$/gm, '<li>$1</li>');
+  html = html.replace(/(<li>.*\n?)+/g, m => `<ul>${m}</ul>`);
+  html = html.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
+  html = html.replace(/^(?!<[a-zA-Z\/!]|$)(.+)$/gm, '<p>$1</p>');
+  return html;
+}
+
+// ---- 修改密码 ----
+function showChangePassword() {
+  document.getElementById('oldPwd').value = '';
+  document.getElementById('newPwd').value = '';
+  document.getElementById('pwdError').classList.add('hidden');
+  document.getElementById('changePasswordModal').classList.remove('hidden');
+}
+
+function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+
+async function submitChangePassword() {
+  const errEl = document.getElementById('pwdError');
+  errEl.classList.add('hidden');
+  try {
+    const res = await fetch(API + '/users/password', {
+      method: 'PUT',
+      headers: { ...authHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        oldPassword: document.getElementById('oldPwd').value,
+        newPassword: document.getElementById('newPwd').value,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) { errEl.textContent = data.error || '修改失败'; errEl.classList.remove('hidden'); return; }
+    closeModal('changePasswordModal');
+    alert('密码修改成功！');
+  } catch {
+    errEl.textContent = '网络错误';
+    errEl.classList.remove('hidden');
+  }
+}
+
+// 点击模态框外部关闭
+document.addEventListener('click', e => {
+  if (e.target.classList.contains('modal-overlay')) {
+    e.target.classList.add('hidden');
+  }
+});
+</script>
+</body>
+</html>
