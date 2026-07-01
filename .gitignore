@@ -5,3 +5,7 @@ config.json
 .env
 *.log
 .DS_Store
+# 自动同步脚本（本地工具，不上传）
+auto-sync.cjs
+启动自动同步.bat
+.sync-config.env
