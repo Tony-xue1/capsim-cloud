@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: capsim-cloud
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: NODE_VERSION
+        value: 22.22.2
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
