@@ -2,11 +2,50 @@ import express from "express";
 import multer from "multer";
 import path from "path";
 import { fileURLToPath } from "url";
+import { createRequire } from "module";
 import fs from "fs";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import cors from "cors";
+
+// ──────────────────────────────────────────────────────────────
+// Polyfill browser APIs (DOMMatrix, DOMPoint, DOMRect) for pdfjs-dist
+// pdf-parse v2 uses pdfjs-dist v5 which requires these in Node.js
+// @napi-rs/canvas/geometry is pure JS (no native binding needed)
+// ──────────────────────────────────────────────────────────────
+const _require = createRequire(import.meta.url);
+try {
+  const geom = _require("@napi-rs/canvas/geometry");
+  if (!globalThis.DOMMatrix) globalThis.DOMMatrix = geom.DOMMatrix;
+  if (!globalThis.DOMPoint) globalThis.DOMPoint = geom.DOMPoint;
+  if (!globalThis.DOMRect) globalThis.DOMRect = geom.DOMRect;
+} catch (e) {
+  console.warn("[polyfill] Failed to load geometry from @napi-rs/canvas:", e.message);
+  // Minimal fallback polyfill
+  if (!globalThis.DOMMatrix) {
+    globalThis.DOMMatrix = class DOMMatrix {
+      constructor(init) {
+        if (typeof init === "string") {
+          const m = init.match(/matrix\(([^)]+)\)/);
+          if (m) init = m[1].split(",").map(parseFloat);
+        }
+        const a = Array.isArray(init) ? init : [1,0,0,1,0,0];
+        this.a = a[0] ?? 1; this.b = a[1] ?? 0;
+        this.c = a[2] ?? 0; this.d = a[3] ?? 1;
+        this.e = a[4] ?? 0; this.f = a[5] ?? 0;
+        this.m11 = this.a; this.m12 = this.b; this.m21 = this.c; this.m22 = this.d;
+        this.m41 = this.e; this.m42 = this.f;
+        this.is2D = true;
+      }
+      multiply(other) { return new globalThis.DOMMatrix([this.a*other.a+this.c*other.b, this.b*other.a+this.d*other.b, this.a*other.c+this.c*other.d, this.b*other.c+this.d*other.d, this.a*other.e+this.c*other.f+this.e, this.b*other.e+this.d*other.f+this.f]); }
+      invertSelf() { const det = this.a*this.d - this.b*this.c; const ia = this.d/det, ib = -this.b/det, ic = -this.c/det, id = this.a/det, ie = (this.c*this.f - this.d*this.e)/det, iff = (this.b*this.e - this.a*this.f)/det; this.a=ia; this.b=ib; this.c=ic; this.d=id; this.e=ie; this.f=iff; this.m11=ia; this.m12=ib; this.m21=ic; this.m22=id; this.m41=ie; this.m42=iff; return this; }
+      preMultiplySelf(other) { return this.multiply(other); }
+      translate(tx, ty) { return new globalThis.DOMMatrix([this.a, this.b, this.c, this.d, this.e + tx*this.a + ty*this.c, this.f + tx*this.b + ty*this.d]); }
+      scale(sx, sy) { sy = sy ?? sx; return new globalThis.DOMMatrix([this.a*sx, this.b*sx, this.c*sy, this.d*sy, this.e, this.f]); }
+    };
+  }
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
