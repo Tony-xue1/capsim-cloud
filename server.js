@@ -295,19 +295,85 @@ app.put("/api/users/password", authenticate, (req, res) => {
 });
 
 // ──────────────────────────────────────────────────────────────
-// PDF 解析
+// PDF 解析（含 OCR 回退）
 // ──────────────────────────────────────────────────────────────
+
+// OCR 回退：当 PDF 文字提取失败（矢量图形/扫描件）时，渲染为图片再 OCR
+async function extractPdfWithOCR(buffer) {
+  const { createCanvas } = _require("@napi-rs/canvas");
+  const pdfjsPath = _require.resolve("pdfjs-dist/legacy/build/pdf.mjs");
+  const pdfjs = await import("file://" + pdfjsPath.replace(/\\/g, "/"));
+
+  const CanvasFactory = {
+    create(w, h) {
+      const c = createCanvas(w, h);
+      return { canvas: c, context: c.getContext("2d") };
+    },
+    reset(o, w, h) { o.canvas.width = w; o.canvas.height = h; },
+    destroy(o) { o.canvas.width = 0; o.canvas.height = 0; },
+  };
+
+  const doc = await pdfjs.getDocument({
+    data: new Uint8Array(buffer),
+    useWorkerFetch: false,
+    isEvalSupported: false,
+    useSystemFonts: true,
+    canvasFactory: CanvasFactory,
+  }).promise;
+
+  const Tesseract = _require("tesseract.js");
+  const worker = await Tesseract.createWorker("eng");
+
+  let allText = "";
+  for (let i = 1; i <= doc.numPages; i++) {
+    const page = await doc.getPage(i);
+    const viewport = page.getViewport({ scale: 2.0 });
+    const cobj = CanvasFactory.create(viewport.width, viewport.height);
+    await page.render({ canvasContext: cobj.context, viewport }).promise;
+    const pngBuf = cobj.canvas.toBuffer("image/png");
+    const result = await worker.recognize(pngBuf);
+    allText += result.data.text + "\n\n--- Page " + i + " ---\n\n";
+    console.log(`[OCR] Page ${i}/${doc.numPages}: ${result.data.text.length} chars`);
+  }
+  await worker.terminate();
+  return allText;
+}
+
 async function extractPdfText(buffer) {
   try {
     const { PDFParse } = await import("pdf-parse");
     const parser = new PDFParse({ data: buffer });
     const result = await parser.getText();
     const text = result.text || "";
-    if (text.trim().length < 100) {
-      return { error: "PDF 文字内容过少，可能是扫描件。请上传包含可选择文字的 PDF。", type: "IMAGE_PDF" };
+    // 如果提取的文字少于 500 字符，或大部分是页码标记（如 "-- 1 of 9 --"），则使用 OCR
+    const cleanText = text.replace(/--\s*\d+\s*of\s*\d+\s*--/g, "").trim();
+    if (cleanText.length < 500) {
+      // 文字提取不足，使用 OCR 回退
+      console.log("[PDF] Text extraction yielded " + text.trim().length + " chars, falling back to OCR...");
+      try {
+        const ocrText = await extractPdfWithOCR(buffer);
+        if (ocrText.trim().length > 100) {
+          console.log("[PDF] OCR extracted " + ocrText.length + " chars total");
+          return { text: ocrText, ocr: true };
+        }
+        return { error: "PDF 文字内容过少，OCR 也未能提取足够文字。", type: "IMAGE_PDF" };
+      } catch (ocrErr) {
+        console.error("[PDF] OCR fallback failed:", ocrErr.message);
+        return { error: "PDF 文字内容过少，OCR 回退失败：" + ocrErr.message, type: "IMAGE_PDF" };
+      }
     }
     return { text };
   } catch (e) {
+    // pdf-parse 完全失败，也尝试 OCR
+    console.log("[PDF] parse failed (" + e.message + "), trying OCR...");
+    try {
+      const ocrText = await extractPdfWithOCR(buffer);
+      if (ocrText.trim().length > 100) {
+        return { text: ocrText, ocr: true };
+      }
+    } catch (ocrErr) {
+      // OCR also failed
+    }
     return { error: "PDF 解析失败：" + e.message, type: "PARSE_ERROR" };
   }
 }
@@ -323,7 +389,7 @@ app.post("/api/upload", authenticate, async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "请上传 PDF 文件" });
   const result = await extractPdfText(req.file.buffer);
   if (result.error) return res.status(400).json({ error: result.error, type: result.type });
-  res.json({ text: result.text, filename: req.file.originalname });
+  res.json({ text: result.text, filename: req.file.originalname, ocr: !!result.ocr });
 });
 
 // ──────────────────────────────────────────────────────────────
