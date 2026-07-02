@@ -4,6 +4,9 @@
   "description": "Capsim AI分析顾问 - 云端版（带用户权限管理）",
   "main": "server.js",
   "type": "module",
+  "engines": {
+    "node": ">=22.3.0"
+  },
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js"
