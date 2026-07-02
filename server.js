@@ -56,6 +56,13 @@ try {
   console.warn("[polyfill] Failed to load Path2D/ImageData from @napi-rs/canvas:", e.message);
 }
 
+// process.getBuiltinModule polyfill（旧版 Node.js 没有此 API，pdf-parse v2 依赖它）
+if (!process.getBuiltinModule) {
+  process.getBuiltinModule = function (name) {
+    return _require(name);
+  };
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 8080;
