@@ -10,7 +10,7 @@ import jwt from "jsonwebtoken";
 import cors from "cors";
 
 // ──────────────────────────────────────────────────────────────
-// Polyfill browser APIs (DOMMatrix, DOMPoint, DOMRect) for pdfjs-dist
+// Polyfill browser APIs (DOMMatrix, DOMPoint, DOMRect, Path2D, ImageData) for pdfjs-dist
 // pdf-parse v2 uses pdfjs-dist v5 which requires these in Node.js
 // @napi-rs/canvas/geometry is pure JS (no native binding needed)
 // ──────────────────────────────────────────────────────────────
@@ -45,6 +45,15 @@ try {
       scale(sx, sy) { sy = sy ?? sx; return new globalThis.DOMMatrix([this.a*sx, this.b*sx, this.c*sy, this.d*sy, this.e, this.f]); }
     };
   }
+}
+
+// Path2D 和 ImageData polyfill（pdfjs-dist 渲染 PDF 页面时需要）
+try {
+  const canvas = _require("@napi-rs/canvas");
+  if (!globalThis.Path2D) globalThis.Path2D = canvas.Path2D;
+  if (!globalThis.ImageData) globalThis.ImageData = canvas.ImageData;
+} catch (e) {
+  console.warn("[polyfill] Failed to load Path2D/ImageData from @napi-rs/canvas:", e.message);
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
