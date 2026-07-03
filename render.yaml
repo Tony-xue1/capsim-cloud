@@ -5,6 +5,8 @@ services:
     plan: free
     buildCommand: npm install
     startCommand: node server.js
+    autoDeploy: false
+    healthcheckPath: /
     envVars:
       - key: NODE_VERSION
         value: 22.22.2
