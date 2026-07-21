@@ -311,6 +311,64 @@ app.put("/api/users/password", authenticate, (req, res) => {
 });
 
 // ──────────────────────────────────────────────────────────────
+// 报告持久化存储（data/reports/）
+// ──────────────────────────────────────────────────────────────
+const REPORTS_DIR = path.join(__dirname, "data", "reports");
+fs.mkdirSync(REPORTS_DIR, { recursive: true });
+
+function saveReport(report) {
+  const id = `report_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const filePath = path.join(REPORTS_DIR, `${id}.json`);
+  const record = {
+    id,
+    createdAt: new Date().toISOString(),
+    teamName: report.teamName || "",
+    roundNum: report.roundNum || 0,
+    strategy: report.strategy || "",
+    filename: report.filename || "",
+    analysisResult: report.analysisResult || "",
+    ocr: !!report.ocr,
+  };
+  fs.writeFileSync(filePath, JSON.stringify(record, null, 2), "utf8");
+  return { id, createdAt: record.createdAt };
+}
+
+function listReports() {
+  const files = fs.readdirSync(REPORTS_DIR).filter(f => f.endsWith(".json"));
+  const reports = [];
+  for (const f of files) {
+    try {
+      const data = JSON.parse(fs.readFileSync(path.join(REPORTS_DIR, f), "utf8"));
+      reports.push({
+        id: data.id,
+        createdAt: data.createdAt,
+        teamName: data.teamName,
+        roundNum: data.roundNum,
+        strategy: data.strategy,
+        filename: data.filename,
+        preview: (data.analysisResult || "").slice(0, 200),
+        ocr: !!data.ocr,
+      });
+    } catch { /* skip corrupt files */ }
+  }
+  reports.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  return reports;
+}
+
+function getReport(id) {
+  const filePath = path.join(REPORTS_DIR, `${id}.json`);
+  if (!fs.existsSync(filePath)) return null;
+  return JSON.parse(fs.readFileSync(filePath, "utf8"));
+}
+
+function deleteReport(id) {
+  const filePath = path.join(REPORTS_DIR, `${id}.json`);
+  if (!fs.existsSync(filePath)) return false;
+  fs.unlinkSync(filePath);
+  return true;
+}
+
+// ──────────────────────────────────────────────────────────────
 // PDF 解析（含 OCR 回退）
 // ──────────────────────────────────────────────────────────────
 
@@ -451,7 +509,7 @@ function buildRdTable(cr) {
     const c = SEGMENT_CENTERS[Math.min(nr,8)]?.[key];
     t += `| ${spec.name} | (${c?.[0]}, ${c?.[1]}) | **${ip?.pfmn}** | **${ip?.size}** | ${spec.mtbf} | ${spec.price} |\n`;
   }
-  t += "\n> Low End 通常不研发（年龄越大越有优势）；High End 每轮必须研发\n";
+  t += "\n> ⚠️ Low End 修订规则：当产品年龄≥7年时**必须开启研发**（研发耗时约1年，新产品在旧产品年龄8年时上市）；年龄<7年时维持不研发。High End 每轮必须研发。\n";
   return t;
 }
 
@@ -479,8 +537,8 @@ function buildAnalysisPrompt(pdfText, teamName, roundNum, strategy) {
 
 ## 背景信息
 - 队伍名称：${teamName||"我方队伍"}
-- 当前轮次：第 ${cr} 轮
-- 目标轮次：第 ${nr} 轮
+- 当前报告轮次：第 ${cr} 轮
+- 目标决策轮次：第 ${nr} 轮
 - 战略方向：${strategy||"未指定"} — ${guide}
 
 ${buildRdTable(cr)}
@@ -520,7 +578,7 @@ ${pdfText}
 | 市场 | 当前Pfmn | 目标Pfmn | 差距 | 当前Size | 目标Size | 差距 | 研发建议 |
 |------|--------|--------|-----|--------|--------|-----|--------|
 | Traditional | | ${ip("Traditional")?.pfmn} | | | ${ip("Traditional")?.size} | | |
-| Low End | | ${ip("LowEnd")?.pfmn} | | | ${ip("LowEnd")?.size} | | 通常不研发 |
+| Low End | | ${ip("LowEnd")?.pfmn} | | | ${ip("LowEnd")?.size} | | 年龄≥7→**必须研发**，<7→维持 |
 | High End | | ${ip("HighEnd")?.pfmn} | | | ${ip("HighEnd")?.size} | | **必须研发** |
 | Performance | | ${ip("Performance")?.pfmn} | | | ${ip("Performance")?.size} | | |
 | Size | | ${ip("Size")?.pfmn} | | | ${ip("Size")?.size} | | |
@@ -551,7 +609,7 @@ ${pdfText}
 | 项目 | Traditional | Low End | High End | Performance | Size |
 |------|------------|---------|----------|------------|------|
 | 产品名称 | | | | | |
-| 是否研发 | | 通常否 | **是（必须）** | | |
+| 是否研发 | | **年龄≥7→是** / <7→否 | **是（必须）** | | |
 | 目标Pfmn | ${ip("Traditional")?.pfmn} | ${ip("LowEnd")?.pfmn} | ${ip("HighEnd")?.pfmn} | ${ip("Performance")?.pfmn} | ${ip("Size")?.pfmn} |
 | 目标Size | ${ip("Traditional")?.size} | ${ip("LowEnd")?.size} | ${ip("HighEnd")?.size} | ${ip("Performance")?.size} | ${ip("Size")?.size} |
 | MTBF | | | | **27000** | **20000** |
@@ -559,16 +617,32 @@ ${pdfText}
 
 ### 3.2 Marketing 决策
 
+#### 占有率预估规则（重要）
+- **第一步**：从报告中获取我方当前各市场**实际占有率**
+- **第二步**：评估**潜在占有率**（考虑：①理想点偏差修正后的竞争力 ②竞品数量与定位 ③产能是否充足）
+- **第三步**：在潜在占有率基础上，计算 **5% 增长率**（如当前 20%，潜在 22%，目标 = 22% × 1.05 ≈ 23.1%）
+- ⚠️ **必须注明产品优化动作**：增长 5% 的前提是配合以下至少一项产品优化调整——**降价策略**、**研发提升参数**、**促销预算加大**、**产能扩张**。无优化动作时不能假设增长率。
+
+#### 促销与销售预算规则（重要）
+- 首先复制上一轮原始数值
+- **如果现金流健康**（期末现金 > 总资产的 10%，且无紧急贷款）→ 在原数值基础上**推荐增长 10%**
+- **如果现金流紧张**（期末现金 < 总资产的 5% 或存在紧急贷款）→ **维持原数值不变**
+- 预算增长说明：如推荐+10%，需标注"现金流健康，适度增加预算以支撑目标增长率"
+
 | 项目 | Traditional | Low End | High End | Performance | Size |
 |------|------------|---------|----------|------------|------|
 | 定价 | | | | | |
 | 当年需求 | | | | | |
 | 次年增长率 | | | | | |
-| 预估占有率 | | | | | |
-| 参数改善增长率 | 3%-7% | | | | |
+| 当前占有率 | | | | | |
+| 潜在占有率 | | | | | |
+| **目标占有率** | (+5%) | (+5%) | (+5%) | (+5%) | (+5%) |
+| 产品优化动作 | 降价/研发/促销等 | | | | |
 | **销售预测量** | | | | | |
-| 促销预算($K) | | | | | |
-| 销售预算($K) | | | | | |
+| 上轮促销预算($K) | | | | | |
+| **促销预算($K)** | ±10%/持平 | | | | |
+| 上轮销售预算($K) | | | | | |
+| **销售预算($K)** | ±10%/持平 | | | | |
 
 ### 3.3 Production 决策
 
@@ -635,10 +709,40 @@ app.post("/api/analyze", authenticate, async (req, res) => {
     const data = await response.json();
     const result = data.choices?.[0]?.message?.content;
     if (!result) return res.status(502).json({ error: "AI 返回内容为空" });
-    res.json({ result });
+
+    // 自动保存报告
+    const saved = saveReport({
+      teamName: teamName || "",
+      roundNum: roundNum || 0,
+      strategy: strategy || "",
+      filename: req.body.filename || "",
+      analysisResult: result,
+      ocr: !!req.body.ocr,
+    });
+
+    res.json({ result, reportId: saved.id });
   } catch (e) {
     res.status(500).json({ error: "分析请求失败：" + e.message });
   }
+});
+
+// ──────────────────────────────────────────────────────────────
+// 历史报告 API
+// ──────────────────────────────────────────────────────────────
+app.get("/api/reports", authenticate, (req, res) => {
+  res.json({ reports: listReports() });
+});
+
+app.get("/api/reports/:id", authenticate, (req, res) => {
+  const report = getReport(req.params.id);
+  if (!report) return res.status(404).json({ error: "报告不存在" });
+  res.json({ report });
+});
+
+app.delete("/api/reports/:id", authenticate, (req, res) => {
+  const ok = deleteReport(req.params.id);
+  if (!ok) return res.status(404).json({ error: "报告不存在" });
+  res.json({ message: "报告已删除" });
 });
 
 // 健康检查
