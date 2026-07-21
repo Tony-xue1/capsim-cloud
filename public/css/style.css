@@ -421,3 +421,24 @@ select.form-input { appearance: none; background-image: url("data:image/svg+xml,
   .phase-progress .phase-step span:last-child { display: none; }
   .users-table { font-size: 13px; }
 }
+
+/* ===== 历史报告面板 ===== */
+.history-list { max-height: 60vh; overflow-y: auto; }
+.history-table-wrap { width: 100%; overflow-x: auto; }
+.history-table-wrap table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.history-table-wrap th {
+  background: var(--surface2);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 10px 14px;
+  text-align: left;
+  white-space: nowrap;
+  border-bottom: 2px solid var(--border);
+}
+.history-table-wrap td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.history-table-wrap tbody tr:hover td { background: rgba(99,102,241,0.05); }
