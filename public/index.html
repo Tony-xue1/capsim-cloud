@@ -18,6 +18,7 @@
   </div>
   <div class="navbar-actions">
     <span class="navbar-user" id="navUser"></span>
+    <button class="btn btn-ghost btn-sm" id="historyBtn" onclick="showHistory()">📋 历史报告</button>
     <button class="btn btn-ghost btn-sm" onclick="showChangePassword()">修改密码</button>
     <button class="btn btn-ghost btn-sm" id="adminBtn" onclick="location.href='/admin.html'" style="display:none">👥 用户管理</button>
     <button class="btn btn-ghost btn-sm" onclick="logout()">退出登录</button>
@@ -82,17 +83,17 @@
           <input type="text" id="teamName" class="form-input" placeholder="如：Andrews / Baldwin">
         </div>
         <div>
-          <label class="form-label">当前轮次</label>
+          <label class="form-label">报告轮次</label>
           <select id="roundNum" class="form-input">
-            <option value="0">第 0 轮（初始）</option>
-            <option value="1">第 1 轮</option>
-            <option value="2">第 2 轮</option>
-            <option value="3" selected>第 3 轮</option>
-            <option value="4">第 4 轮</option>
-            <option value="5">第 5 轮</option>
-            <option value="6">第 6 轮</option>
-            <option value="7">第 7 轮</option>
-            <option value="8">第 8 轮</option>
+            <option value="0">报告第 0 轮（初始）</option>
+            <option value="1">报告第 1 轮</option>
+            <option value="2">报告第 2 轮</option>
+            <option value="3" selected>报告第 3 轮</option>
+            <option value="4">报告第 4 轮</option>
+            <option value="5">报告第 5 轮</option>
+            <option value="6">报告第 6 轮</option>
+            <option value="7">报告第 7 轮</option>
+            <option value="8">报告第 8 轮</option>
           </select>
         </div>
         <div>
@@ -148,6 +149,30 @@
 
     <!-- 错误提示 -->
     <div id="analysisError" class="error-box hidden"></div>
+
+    <!-- 历史报告面板 -->
+    <div id="historyPanel" class="config-section hidden">
+      <div class="config-title" style="display:flex;justify-content:space-between;align-items:center">
+        <span>📋 历史报告</span>
+        <button class="btn btn-ghost btn-sm" onclick="closeHistory()">✕ 关闭</button>
+      </div>
+      <div id="historyList" class="history-list">
+        <p style="color:var(--text-muted);text-align:center;padding:20px">加载中...</p>
+      </div>
+      <!-- 单篇报告详情 -->
+      <div id="historyDetail" class="result-section hidden">
+        <div class="result-header">
+          <h3 id="historyDetailTitle">报告详情</h3>
+          <div>
+            <button class="btn btn-ghost btn-sm" onclick="deleteHistoryReport()">🗑 删除</button>
+            <button class="btn btn-ghost btn-sm" onclick="backToHistoryList()">← 返回列表</button>
+          </div>
+        </div>
+        <div class="result-body">
+          <div id="historyDetailContent" class="markdown-output"></div>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -350,6 +375,8 @@ async function runAnalysis() {
         teamName: document.getElementById('teamName').value.trim(),
         roundNum: document.getElementById('roundNum').value,
         strategy: document.getElementById('strategy').value,
+        filename: uploadedFilename || '',
+        ocr: false,
       }),
     });
     const data = await res.json();
@@ -510,6 +537,102 @@ document.addEventListener('click', e => {
     e.target.classList.add('hidden');
   }
 });
+
+// ---- 历史报告 ----
+let currentHistoryId = null;
+
+async function showHistory() {
+  document.getElementById('historyPanel').classList.remove('hidden');
+  document.getElementById('historyDetail').classList.add('hidden');
+  document.getElementById('resultSection').classList.add('hidden');
+  await loadHistoryList();
+  document.getElementById('historyPanel').scrollIntoView({ behavior: 'smooth' });
+}
+
+function closeHistory() {
+  document.getElementById('historyPanel').classList.add('hidden');
+  document.getElementById('historyDetail').classList.add('hidden');
+}
+
+async function loadHistoryList() {
+  const listEl = document.getElementById('historyList');
+  listEl.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:20px">加载中...</p>';
+  try {
+    const res = await fetch(API + '/reports', { headers: authHeader() });
+    const data = await res.json();
+    if (!data.reports || data.reports.length === 0) {
+      listEl.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:20px">暂无历史报告，完成分析后将自动保存</p>';
+      return;
+    }
+    let html = '<div class="history-table-wrap"><table><thead><tr><th>时间</th><th>队伍</th><th>轮次</th><th>战略</th><th>PDF</th><th>操作</th></tr></thead><tbody>';
+    for (const r of data.reports) {
+      const dt = new Date(r.createdAt);
+      const timeStr = dt.toLocaleString('zh-CN', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
+      html += `<tr>
+        <td>${timeStr}</td>
+        <td>${escHtml(r.teamName||'-')}</td>
+        <td>报告第 ${r.roundNum} 轮</td>
+        <td>${escHtml(r.strategy||'未指定')}</td>
+        <td title="${escHtml(r.filename||'')}">${escHtml((r.filename||'-').slice(0,20))}</td>
+        <td>
+          <button class="btn btn-ghost btn-sm" onclick="viewHistoryReport('${r.id}')">查看</button>
+          <button class="btn btn-ghost btn-sm" onclick="delHistoryReport('${r.id}')" style="color:#e74c3c">删除</button>
+        </td>
+      </tr>`;
+    }
+    html += '</tbody></table></div>';
+    listEl.innerHTML = html;
+  } catch (e) {
+    listEl.innerHTML = '<p style="color:#e74c3c;text-align:center;padding:20px">加载失败：' + e.message + '</p>';
+  }
+}
+
+async function viewHistoryReport(id) {
+  try {
+    const res = await fetch(API + '/reports/' + id, { headers: authHeader() });
+    const data = await res.json();
+    if (!res.ok) { alert(data.error); return; }
+    currentHistoryId = id;
+    const r = data.report;
+    document.getElementById('historyList').classList.add('hidden');
+    document.getElementById('historyDetail').classList.remove('hidden');
+    const dt = new Date(r.createdAt).toLocaleString('zh-CN');
+    document.getElementById('historyDetailTitle').textContent =
+      `📊 ${r.teamName||'未命名'} — 报告第 ${r.roundNum} 轮 (${dt})`;
+    document.getElementById('historyDetailContent').innerHTML = markdownToHtml(r.analysisResult || '无内容');
+  } catch (e) {
+    alert('加载报告失败：' + e.message);
+  }
+}
+
+function backToHistoryList() {
+  currentHistoryId = null;
+  document.getElementById('historyList').classList.remove('hidden');
+  document.getElementById('historyDetail').classList.add('hidden');
+}
+
+async function delHistoryReport(id) {
+  if (!confirm('确定删除这条历史报告？不可恢复。')) return;
+  try {
+    const res = await fetch(API + '/reports/' + id, { method: 'DELETE', headers: authHeader() });
+    const data = await res.json();
+    if (!res.ok) { alert(data.error); return; }
+    loadHistoryList();
+  } catch (e) {
+    alert('删除失败：' + e.message);
+  }
+}
+
+async function deleteHistoryReport() {
+  if (!currentHistoryId) return;
+  await delHistoryReport(currentHistoryId);
+  backToHistoryList();
+}
+
+function escHtml(str) {
+  if (!str) return '';
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
 </script>
 </body>
 </html>
